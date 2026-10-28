@@ -7,7 +7,8 @@ from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -19,8 +20,12 @@ from .runtime import SmartHeat
 async def async_setup_entry(hass: HomeAssistant, entry: SmartHeatConfigEntry,
                             async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     rt = entry.runtime_data
+    # the main device first: the zone devices refer to it by its registry id
+    main = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={(DOMAIN, entry.entry_id)}, name="Smart Heat",
+        entry_type=DeviceEntryType.SERVICE)
     async_add_entities([LearningRunSensor(entry.entry_id, rt)] +
-                       [ZoneLearningSensor(entry.entry_id, rt, z) for z in rt.zones])
+                       [ZoneLearningSensor(entry.entry_id, rt, z, main.id) for z in rt.zones])
 
 
 class _Base(SensorEntity):
@@ -46,7 +51,8 @@ class LearningRunSensor(_Base):
     def __init__(self, entry_id: str, rt: SmartHeat) -> None:
         super().__init__(rt)
         self._attr_unique_id = f"{entry_id}_learning_run"
-        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, entry_id)}, name="Smart Heat")
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, entry_id)}, name="Smart Heat",
+                                            entry_type=DeviceEntryType.SERVICE)
 
     @property
     def native_value(self) -> str:
@@ -63,12 +69,13 @@ class ZoneLearningSensor(_Base):
     _attr_translation_key = "learning"
     _attr_device_class = SensorDeviceClass.DATE
 
-    def __init__(self, entry_id: str, rt: SmartHeat, zone: str) -> None:
+    def __init__(self, entry_id: str, rt: SmartHeat, zone: str, main_device_id: str) -> None:
         super().__init__(rt)
         self.zone = zone
         self._attr_unique_id = f"{entry_id}_{zone}_learning"
         self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, f"{entry_id}_{zone}")},
-                                            name=f"Smart Heat {zone}", via_device=(DOMAIN, entry_id))
+                                            name=f"Smart Heat {zone}", entry_type=DeviceEntryType.SERVICE,
+                                            via_device_id=main_device_id)
 
     @property
     def native_value(self) -> date | None:

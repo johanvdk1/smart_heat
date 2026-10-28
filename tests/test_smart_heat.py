@@ -37,7 +37,7 @@ async def test_flow_invalid(hass: HomeAssistant, tmp_path) -> None:
     assert "house.pump missing" in r["description_placeholders"]["problem"]
 
 
-async def test_setup_sensors_and_learn_now(hass: HomeAssistant) -> None:
+async def test_setup_sensors_and_learn_now(hass: HomeAssistant, caplog) -> None:
     entry = MockConfigEntry(domain=DOMAIN, data={CONF_ZONES_FILE: ZONES_FILE})
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
@@ -46,6 +46,13 @@ async def test_setup_sensors_and_learn_now(hass: HomeAssistant) -> None:
     assert hass.states.get("sensor.smart_heat_learning_run").state == "never"
     for z in ZONES:
         assert hass.states.get(f"sensor.smart_heat_{z}_learning") is not None
+    # zone devices hang under the main device, linked by registry id (no deprecated via_device)
+    from homeassistant.helpers import device_registry as dr
+    reg = dr.async_get(hass)
+    main = reg.async_get_device_by_identifier((DOMAIN, entry.entry_id), entry.entry_id)
+    zone_dev = reg.async_get_device_by_identifier((DOMAIN, f"{entry.entry_id}_woonkamer"), entry.entry_id)
+    assert main is not None and zone_dev.via_device_id == main.id
+    assert "deprecated" not in caplog.text
     # empty recorder: the run must finish cleanly and process nothing
     await hass.services.async_call(DOMAIN, "learn_now", blocking=True)
     await hass.async_block_till_done(wait_background_tasks=True)
