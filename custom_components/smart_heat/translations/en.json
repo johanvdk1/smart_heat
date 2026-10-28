@@ -1,0 +1,35 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Smart Heat",
+        "description": "The house description: zones.yaml, relative to the configuration directory.",
+        "data": {
+          "zones_file": "Zones file"
+        }
+      }
+    },
+    "error": {
+      "invalid_zones_file": "Not usable: {problem}"
+    },
+    "abort": {
+      "single_instance_allowed": "Smart Heat is already configured."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "learning_run": {
+        "name": "Learning run"
+      },
+      "learning": {
+        "name": "Learning"
+      }
+    }
+  },
+  "services": {
+    "learn_now": {
+      "name": "Learn now",
+      "description": "Run the learning routine now instead of waiting for 06:30: every finished day not yet in the learning log is processed."
+    }
+  }
+}
