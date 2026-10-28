@@ -27,10 +27,14 @@ message per missing key.
 
 ## Install
 
-1. Copy `custom_components/smart_heat/` into the HA config (`/config/custom_components/smart_heat/`),
-   here via the config repo (staging → GitHub → `git pull` on live).
-2. Restart HA, then Settings → Devices & services → Add integration → Smart Heat, zones file
-   `heating/zones.yaml`.
+Through HACS (custom repository):
+
+1. HACS → ⋮ → Custom repositories → `https://github.com/johanvdk1/smart_heat`, type Integration.
+2. Download Smart Heat, restart Home Assistant.
+3. Settings → Devices & services → Add integration → Smart Heat, zones file (default
+   `heating/zones.yaml`, relative to the configuration directory).
+
+Requires Home Assistant 2026.10 or later.
 
 ## Tests
 
@@ -40,3 +44,7 @@ With HA 2026.10.4 (`pytest-homeassistant-custom-component==0.13.375`):
     .venv/bin/python -m pytest tests
 
 `SMART_HEAT_ZONES_FILE` points the tests at a house description (default `~/ha/staging/heating/zones.yaml`).
+
+## License
+
+GPL-3.0, see `LICENSE`.

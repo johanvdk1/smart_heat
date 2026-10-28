@@ -1,12 +1,17 @@
 {
   "domain": "smart_heat",
   "name": "Smart Heat",
-  "codeowners": ["@johanvdk1"],
+  "codeowners": [
+    "@johanvdk1"
+  ],
   "config_flow": true,
-  "dependencies": ["recorder"],
+  "dependencies": [
+    "recorder"
+  ],
   "documentation": "https://github.com/johanvdk1/smart_heat",
   "integration_type": "service",
   "iot_class": "calculated",
+  "issue_tracker": "https://github.com/johanvdk1/smart_heat/issues",
   "requirements": [],
   "single_config_entry": true,
   "version": "0.2.0"
