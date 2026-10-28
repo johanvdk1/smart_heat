@@ -1,5 +1,5 @@
 """Smart Heat runtime: loads the house description (zones.yaml) and runs the learning routine
-(heatmodel.learn) in HA with history from the recorder (decisions 22, 23, step 3).
+(heatmodel.learn) in HA with history from the recorder.
 Read-only: nothing here switches anything."""
 
 from __future__ import annotations
@@ -115,7 +115,7 @@ class SmartHeat:
         since = datetime.fromtimestamp(hm_learn.start_ts(conf, tz) - 86400, tz)
         ids = sorted({e for z in self.zones for e in hm_config.entities(conf, z)})
         # every row, also attribute-only changes (the setpoint is an attribute of the climate entity):
-        # significant_changes_only=False; no start-time state, as the recorder query on the Mac
+        # significant_changes_only=False; no start-time state: only rows from `since` on
         states = await get_instance(hass).async_add_executor_job(
             history.get_significant_states, hass, since, None, ids, None, False, False, False, False, False
         )

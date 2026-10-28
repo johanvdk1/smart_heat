@@ -1,4 +1,4 @@
-"""Smart Heat: smart thermostat per zone with learning (AUTO_HEAT_DESIGN.md, decisions 18-23).
+"""Smart Heat: a smart thermostat per heating zone that learns how each zone heats up and cools down.
 
 Step 3 (read-only): the nightly learning routine of the learning phase runs here, in HA, with the model
 package heatmodel/ of this integration; the house is described in zones.yaml in the HA config; results go

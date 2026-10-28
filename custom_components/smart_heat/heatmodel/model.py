@@ -13,7 +13,7 @@ EXTRA = {'gam': (0.2, 1.0, 1.0), 'gp': (0.0, 3.0, 0.0), 'kn': (0.0, 2.0, 0.0)}
 
 
 class Params:
-    """Parameter names, bounds and start values for a zone's rooms (layout as simple_v4.py + lodo_c.py)."""
+    """Parameter names, bounds and start values for a zone's rooms."""
 
     def __init__(self, rooms):
         self.rooms = list(rooms)

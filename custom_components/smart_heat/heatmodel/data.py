@@ -1,4 +1,4 @@
-"""Zone data on a one-minute grid, built from raw state history (as simple_v4.py and lodo_c.py)."""
+"""Zone data on a one-minute grid, built from raw state history."""
 import datetime as dt, json
 import numpy as np
 
@@ -93,7 +93,7 @@ class ZoneData:
         self.TN = ffill(g(self.NBS[0]['temperature']), 15.0) if self.NBS else np.zeros(n)
 
         # Door contact (rooms.<room>.door): while the door is open the thermostat drops to its door-open
-        # setpoint (badkamer: 12), which is not a wish for 12 degC. Events and the controller model use the
+        # setpoint (e.g. 12 degC), which is not a wish for that temperature. Events and the controller model use the
         # setpoint from before the door opened; the controller model skips the door-open minutes (the planner
         # assumes a closed door). The thermal model uses the measured valves. Rooms without a door: no change.
         self.DOOR_HOLD_MIN = 5                      # minutes after closing until the thermostat is back
@@ -110,7 +110,7 @@ class ZoneData:
         self.day = ((t - t0) // 86400).astype(int)
         if len(ROOMS) > 1 and 'reference_room' not in Z:
             raise ValueError(f"zones.yaml: zone {zone} has several rooms and needs reference_room")
-        self.REF = Z.get('reference_room', ROOMS[0])  # the room whose target and floor count (decision 12)
+        self.REF = Z.get('reference_room', ROOMS[0])  # in a zone of several rooms, the room whose target and comfort floor count
         self.T_REF, self.SP_REF = self.room_T[self.REF], self.SPr[self.REF]
         A_m, BURN = self.A_m, self.BURN
         self.starts = [i for i in range(BURN, n - SEG, STEP)

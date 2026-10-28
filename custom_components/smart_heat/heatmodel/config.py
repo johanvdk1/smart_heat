@@ -1,4 +1,4 @@
-"""zones.yaml: validation and the entities a zone needs (used by shadow.py and Smart Heat)."""
+"""zones.yaml: validation and the entities a zone needs."""
 
 EVENT_KEYS = ('warm_step', 'warm_gap', 'target_window_min', 'reached_tol', 'warm_window_min', 'cool_step',
               'cool_gap', 'coast_end_rise', 'coast_window_min', 'min_spacing_min')

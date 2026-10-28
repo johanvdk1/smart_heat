@@ -1,5 +1,5 @@
 """Bounded nonlinear least squares in numpy (Levenberg-Marquardt), replacing scipy.optimize.least_squares
-(scipy is not in Home Assistant 2026.10: not in requirements_all.txt; numpy 2.3.2 is; decision 22, step 2).
+(Home Assistant 2026.10 ships numpy 2.3.2 but not scipy).
 
 Minimises 0.5 * sum(fun(x)**2) with lb <= x <= ub. Jacobian by forward differences with the step of
 scipy's diff_step (h = diff_step * max(1, |x|), away from the nearer bound). Marquardt scaling by the

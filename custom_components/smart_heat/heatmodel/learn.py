@@ -1,7 +1,7 @@
-"""The learning routine of the learning phase (decisions 15, 18, 22): per finished day D, fit the thermal and
+"""The learning routine of the learning phase: per finished day D, fit the thermal and
 controller model on data before D 00:00 (training segments weighted by age), predict every warm-up and
-cool-down of D the way a planner would, and log predicted against actual. Moved here from shadow.py so the
-Mac run and Smart Heat run the same code. Output (appended; days already in the files are skipped):
+cool-down of D the way a planner would, and log predicted against actual.
+Output (appended; days already in the files are skipped):
   predictions.csv  one row per event        params.csv  one row per fit
 """
 import csv, json, os, datetime as dt
@@ -41,8 +41,9 @@ def learn_zone(conf, zone, history, out_dir, tz, now, start_day=None, log=print)
     done = {r['date'] for r in _read(PRED) if r['zone'] == zone} | {r['fit_until'] for r in _read(PARF) if r['zone'] == zone}
     prev = [json.loads(r['params']) for r in _read(PARF) if r['zone'] == zone]
     HALF = float(D.get('half_life_days', 21)); CM = float(D.get('coast_margin', 0.5))
-    LEAD = Z.get('lead_time_min')                  # fixed lead time instead of the model (decision 20)
-    MARGIN = 0.0 if LEAD else max(0.0, float(Z['worst_late_min']) - float(D.get('allowed_late_min', 0)))  # decision 19
+    LEAD = Z.get('lead_time_min')                  # zone with a fixed lead time: warm-ups are scored on it, not on the model
+    # start margin: the zone's worst late start minus the lateness that is accepted (a little late beats a lot early)
+    MARGIN = 0.0 if LEAD else max(0.0, float(Z['worst_late_min']) - float(D.get('allowed_late_min', 0)))
     FREE_S = par.FREE + ['gam'] + (['kn'] if zd.NBS else [])
     TN_MODE = 'held'
     run_at = now.strftime('%Y-%m-%d %H:%M')
@@ -63,8 +64,8 @@ def learn_zone(conf, zone, history, out_dir, tz, now, start_day=None, log=print)
         C, off_ = ctrl_fit(zd, t < cut)
         keys = [f'a_{r}' for r in ROOMS] + ['k', 'h', 'cr', 'tau_rad', 'c0', 'gam', 'kn']
         pr = {k: round(float(P[k]), 4) for k in keys}
-        # a jump: moved more than 50 % of the previous value; floor 0.02, for c0 0.05 K/h (c0 hovers around 0
-        # in eetkeuken and badkamer, where 0.015 K/h moves were flagged)
+        # a jump: moved more than 50 % of the previous value; floor 0.02, for c0 0.05 K/h (c0 often hovers
+        # around 0, where small moves would otherwise be flagged)
         jumps = [k for k in [f'a_{r}' for r in ROOMS] + ['k', 'c0', 'kn'] if prev and
                  abs(pr[k] - prev[-1].get(k, pr[k])) > 0.5 * max(abs(prev[-1].get(k, 0)), 0.05 if k == 'c0' else 0.02)]
         i0 = int((cut - t[0]) // 60); i1 = int((end - t[0]) // 60)
@@ -85,7 +86,7 @@ def learn_zone(conf, zone, history, out_dir, tz, now, start_day=None, log=print)
             r_ = {'kind': 'cool', 'event': i, 'setpoint': float(SP_REF[i]), 'coast_min': L, 'floor': FLOOR}
             for h in (1, 2, 3, 4, 5):
                 if h * 60 + 5 < L: r_[f'err_{h}h'] = float(np.nanmean(A_m[i + h * 60 - 5:i + h * 60 + 5])) - zone_T[h * 60]
-            pe = float(zone_T[-1] + off_[REF])         # reference room = zone + its mean offset (decision 12)
+            pe = float(zone_T[-1] + off_[REF])         # reference room = zone temperature + that room's mean offset
             me = float(np.nanmean(T_REF[i + L - 10:i + L]))
             r_.update(pred_end=pe, meas_end=me, allowed=pe >= FLOOR + CM, stayed_above=float(np.nanmin(T_REF[i:i + L])) >= FLOOR)
             rows.append(r_)

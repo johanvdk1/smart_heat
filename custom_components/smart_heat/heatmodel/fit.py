@@ -1,4 +1,4 @@
-"""Thermal parameter fit (as lodo_c.py fit and shadow.py fit_w), with the numpy least squares of lsq.py."""
+"""Thermal parameter fit over training segments, optionally weighted by age, with the numpy least squares of lsq.py."""
 import numpy as np
 from .lsq import lm
 from .model import resid
