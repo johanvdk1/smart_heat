@@ -2,8 +2,7 @@
 
 Home Assistant integration (domain `smart_heat`): a smart thermostat per heating zone that learns how
 each zone heats up and cools down, and starts the heating so a zone reaches its target on time.
-Private, for one house. Design and decisions: `heating/AUTO_HEAT_DESIGN.md` in the HA config repo
-(`johanvdk1/homeassistant-config`, decisions 18–23).
+Private, for one house. 
 
 ## Status
 
