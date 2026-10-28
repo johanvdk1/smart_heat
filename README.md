@@ -6,7 +6,7 @@ Private, for one house.
 
 ## Status
 
-Version 0.2.0 — step 3 of decision 22, **read-only**: the nightly learning routine of the learning
+Version 0.2.0 — **read-only**: the nightly learning routine of the learning
 phase runs in HA. Nothing is switched.
 
 - Nightly at 06:30, and on the action `smart_heat.learn_now`: per zone, every finished day not yet in
