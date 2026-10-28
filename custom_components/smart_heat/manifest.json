@@ -1,6 +1,9 @@
 {
   "domain": "smart_heat",
   "name": "Smart Heat",
+  "categories": [
+    "climate.thermostats_heating"
+  ],
   "codeowners": [
     "@johanvdk1"
   ],
