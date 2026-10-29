@@ -58,3 +58,19 @@ async def test_no_heat_while_heating_pump_has_no_power() -> None:
     zd.HOT[i:i + 60] = False                          # pump stops during the prediction
     cold = forward(zd, P, i, 120, C, off_, "held")
     assert cold[-1] < warm[-1] - 0.5
+
+
+async def test_lost_valve_or_temperature_is_no_measurement_beyond_the_bridge() -> None:
+    zd = _zone({
+        "sensor.out": [(T0 - 60, "5.0", None)],
+        "sensor.pump_w": [(T0 - 60, "5", None)],
+        "sensor.v": [(T0 - 60, "50", None), (T0 + 600, "unavailable", None), (T0 + 1800, "40", None),
+                     (T0 + 7200, "unavailable", None), (T0 + 14400, "30", None)],
+        "sensor.t": [(T0 - 60, "19.0", None)],         # no change for a day: still a measurement
+    })
+    assert not np.isnan(zd.A_m[: 120]).any()          # 20 min lost (a restart): bridged
+    assert zd.V["r"][15] == 0.5                       # bridged with the value before
+    assert np.isnan(zd.A_m[120:240]).all()            # 2 h lost: no measurement
+    assert (zd.V["r"][120:240] == 0.4).all()          # model input: last value held
+    assert zd.NO_VALVE["r"][120:240].all() and not zd.NO_VALVE["r"][:120].any()
+    assert zd.A_m[-1] == 19.0                         # the 3 h cut-off on a stable temperature is gone

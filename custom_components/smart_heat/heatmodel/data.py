@@ -79,13 +79,18 @@ class ZoneData:
         t = self.t = np.arange(t0, t_end, 60.0); n = self.n = len(t)
         g = lambda e, attr=None, max_age=None, unavailable=False: grid(points(history(e), attr, unavailable), t, max_age)
 
-        self.room_T = {r: bridge(g(rc['temperature'], max_age=3 * 3600), self.GAP_MAX) for r, rc in Z['rooms'].items()}
+        # room temperature and valve: HA losing the device (unavailable) is bridged up to GAP_MAX minutes
+        # (restarts); longer, the minutes are no measurement. The setpoint is held: the head keeps it.
+        self.room_T = {r: bridge(g(rc['temperature'], unavailable=True), self.GAP_MAX) for r, rc in Z['rooms'].items()}
+        v_raw = {r: bridge(g(rc['valve'], unavailable=True), self.GAP_MAX) / 100.0 for r, rc in Z['rooms'].items()}
+        self.NO_VALVE = {r: np.isnan(v) & (np.cumsum(~np.isnan(v)) > 0) for r, v in v_raw.items()}  # lost, after a first value
         area = np.array([float(Z['rooms'][r].get('area_m2', 1.0)) for r in ROOMS]); wts = area / area.sum()
         self.A_m = np.tensordot(wts, np.stack([self.room_T[r] for r in ROOMS]), axes=1)
+        self.A_m[np.any(np.stack(list(self.NO_VALVE.values())), axis=0)] = np.nan   # heat input unknown: no measurement
         # heating pump: speed and power vary and do not matter; without power the radiators get no hot water,
         # so the valves give no heat (the head still sets them: the controller model uses V, the heat model U)
         self.HOT = np.nan_to_num(g(H['heating_pump']), nan=PUMP_MIN_W) >= PUMP_MIN_W
-        self.V = {r: np.nan_to_num(g(rc['valve']) / 100.0) for r, rc in Z['rooms'].items()}
+        self.V = {r: ffill(v, 0.0) for r, v in v_raw.items()}  # model input: last value held through a loss
         self.U = {r: np.where(self.HOT, v, 0.0) for r, v in self.V.items()}
         self.SPr = {r: ffill(g(rc['climate'], attr='temperature'), np.nan) for r, rc in Z['rooms'].items()}
 
