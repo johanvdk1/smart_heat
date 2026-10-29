@@ -9,7 +9,7 @@ def validate(conf):
     err = []
     if not isinstance(conf, dict): return ['zones.yaml is not a mapping']
     H, D, Z = conf.get('house') or {}, conf.get('data') or {}, conf.get('zones') or {}
-    for k in ('pump', 'outdoor'):
+    for k in ('outdoor', 'heating_pump'):
         if not H.get(k): err.append(f'house.{k} missing')
     if not D.get('start'): err.append('data.start missing')
     ev = D.get('events') or {}
@@ -32,7 +32,7 @@ def validate(conf):
 def entities(conf, zone):
     """Every entity whose history ZoneData reads for this zone."""
     H, Z = conf['house'], conf['zones'][zone]
-    out = [H['pump'], H['outdoor']] + ([H['outdoor_internet']] if H.get('outdoor_internet') else [])
+    out = [H['heating_pump'], H['outdoor']] + ([H['outdoor_internet']] if H.get('outdoor_internet') else [])
     for rc in Z['rooms'].values():
         out += [rc['temperature'], rc['valve'], rc['climate']] + ([rc['door']] if rc.get('door') else [])
     out += list(Z.get('in_use') or [])

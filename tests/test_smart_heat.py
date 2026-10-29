@@ -34,7 +34,7 @@ async def test_flow_invalid(hass: HomeAssistant, tmp_path) -> None:
     bad = tmp_path / "bad.yaml"
     bad.write_text("house: {}\nzones: {}\n")
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {CONF_ZONES_FILE: str(bad)})
-    assert "house.pump missing" in r["description_placeholders"]["problem"]
+    assert "house.outdoor missing" in r["description_placeholders"]["problem"]
 
 
 async def test_setup_sensors_and_learn_now(hass: HomeAssistant, caplog) -> None:

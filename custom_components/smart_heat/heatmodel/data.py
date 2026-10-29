@@ -3,14 +3,18 @@ import datetime as dt, json
 import numpy as np
 
 SEG, STEP = 720, 60                                 # training segments: 12 h, one starting every hour
+PUMP_MIN_W = 2.0                                    # heating pump below this power: not running
 
 
-def points(rows, attr=None):
+def points(rows, attr=None, unavailable=False):
     """(ts, value) pairs from raw history rows: an attribute, on/off as 1/0, or a numeric state.
-    Attributes may be a dict or a JSON string (parsed only when an attribute is asked for)."""
+    Attributes may be a dict or a JSON string (parsed only when an attribute is asked for).
+    unavailable=True: unavailable/unknown become NaN (no value until the next one) instead of being skipped."""
     out = []
     for ts, st, at in rows:
-        if attr:
+        if unavailable and st in ('unavailable', 'unknown'):
+            out.append((ts, np.nan))
+        elif attr:
             if isinstance(at, str): at = json.loads(at) if at else None
             if st in ('unavailable', 'unknown') or not at: continue
             v = at.get(attr)
@@ -73,18 +77,23 @@ class ZoneData:
         self.EV = D['events']                       # warm-up / cool-down rules (no defaults)
         self.rooms = ROOMS = list(Z['rooms'])
         t = self.t = np.arange(t0, t_end, 60.0); n = self.n = len(t)
-        g = lambda e, attr=None, max_age=None: grid(points(history(e), attr), t, max_age)
+        g = lambda e, attr=None, max_age=None, unavailable=False: grid(points(history(e), attr, unavailable), t, max_age)
 
         self.room_T = {r: bridge(g(rc['temperature'], max_age=3 * 3600), self.GAP_MAX) for r, rc in Z['rooms'].items()}
         area = np.array([float(Z['rooms'][r].get('area_m2', 1.0)) for r in ROOMS]); wts = area / area.sum()
         self.A_m = np.tensordot(wts, np.stack([self.room_T[r] for r in ROOMS]), axes=1)
-        self.pump = pump = np.nan_to_num(g(H['pump']))
-        self.U = {r: np.nan_to_num(np.where(pump > 0.5, g(rc['valve']) / 100.0, 0.0)) for r, rc in Z['rooms'].items()}
+        # heating pump: speed and power vary and do not matter; without power the radiators get no hot water,
+        # so the valves give no heat (the head still sets them: the controller model uses V, the heat model U)
+        self.HOT = np.nan_to_num(g(H['heating_pump']), nan=PUMP_MIN_W) >= PUMP_MIN_W
+        self.V = {r: np.nan_to_num(g(rc['valve']) / 100.0) for r, rc in Z['rooms'].items()}
+        self.U = {r: np.where(self.HOT, v, 0.0) for r, v in self.V.items()}
         self.SPr = {r: ffill(g(rc['climate'], attr='temperature'), np.nan) for r, rc in Z['rooms'].items()}
 
-        To = ffill(g(H['outdoor']), np.nan)          # real sensor; gaps from the internet estimate, else 10
+        # outdoor: the real sensor (battery device, can fail on cold mornings); while it is unavailable or
+        # before its first value the internet estimate, else 10
+        To = g(H['outdoor'], unavailable=True)
         if H.get('outdoor_internet'):
-            To = np.where(np.isnan(To), ffill(g(H['outdoor_internet']), 10.0), To)
+            To = np.where(np.isnan(To), ffill(g(H['outdoor_internet']), np.nan), To)
         self.To = np.where(np.isnan(To), 10.0, To)
         in_use = Z.get('in_use') or []
         pc = sum(np.nan_to_num(g(e)) for e in in_use) if in_use else np.zeros(n)

@@ -72,10 +72,11 @@ def rmse(zd, par, p, idx, M, lag):
 
 def forward(zd, P, i, length, C, off_, tn_mode):
     """Planner prediction from minute i: replay the BURN minutes before i with the measured valves, then
-    `length` minutes with valves from the controller model C (per room) at the real setpoints.
+    `length` minutes with valves from the controller model C (per room) at the real setpoints
+    (no heat while the heating pump is not running).
     tn_mode 'held': the neighbour stays at its value at i; 'meas': measured."""
     BURN, DEAD, rooms = zd.BURN, zd.DEAD, zd.rooms
-    A_m, U, To, USE, TN, SPr, pump, room_T = zd.A_m, zd.U, zd.To, zd.USE, zd.TN, zd.SPr, zd.pump, zd.room_T
+    A_m, U, To, USE, TN, SPr, HOT, room_T = zd.A_m, zd.U, zd.To, zd.USE, zd.TN, zd.SPr, zd.HOT, zd.room_T
     pin = sum(P[f'a_{r}'] * U[r] ** P['gam'] for r in rooms)
     T = A_m[i - BURN]; M = T; Pr = 0.0
     for j in range(i - BURN, i):
@@ -90,9 +91,9 @@ def forward(zd, P, i, length, C, off_, tn_mode):
         for r in rooms:
             room = T + off_[r]; b = C[r]
             prev = buf[r][0] if not np.isnan(buf[r][0]) else room
-            u = float(np.clip(b[0] + b[1] * (SPr[r][j] - room) + b[2] * (room - prev) * 6.0, 0, 1)) if pump[j] > 0.5 else 0.0
+            u = float(np.clip(b[0] + b[1] * (SPr[r][j] - room) + b[2] * (room - prev) * 6.0, 0, 1))
             buf[r].append(room); buf[r].pop(0)
-            hist[r].append(u); pw += P[f'a_{r}'] * hist[r].pop(0) ** P['gam']
+            hist[r].append(u if HOT[j] else 0.0); pw += P[f'a_{r}'] * hist[r].pop(0) ** P['gam']
         tn = TN[j] if tn_mode == 'meas' else TN[i]
         T, M, Pr = step(P, T, M, Pr, pw, To[j], P['c0'] + P['gp'] * USE[j] + P['kn'] * (tn - T), True)
         zone[s] = T
