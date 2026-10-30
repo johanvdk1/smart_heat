@@ -74,3 +74,51 @@ async def test_lost_valve_or_temperature_is_no_measurement_beyond_the_bridge() -
     assert (zd.V["r"][120:240] == 0.4).all()          # model input: last value held
     assert zd.NO_VALVE["r"][120:240].all() and not zd.NO_VALVE["r"][:120].any()
     assert zd.A_m[-1] == 19.0                         # the 3 h cut-off on a stable temperature is gone
+
+
+def _week(k):
+    """Seven days, valves closed, room steady at 19 with 5 outside; parameters with loss rate k."""
+    rows = {"sensor.t": [(T0 - 60, "19.0", None)], "sensor.v": [(T0 - 60, "0", None)],
+            "climate.c": [(T0 - 60, "heat", {"temperature": 19.0})],
+            "sensor.out": [(T0 - 60, "5.0", None)], "sensor.pump_w": [(T0 - 60, "5", None)]}
+    zd = ZoneData(CONF, "z", lambda e: rows.get(e, []), T0, T0 + 7 * DAY)
+    par = Params(zd.rooms); p = par.X0.copy(); p[par.I["k"]] = k; p[par.I["h"]] = 0.5
+    return zd, par, p
+
+
+async def test_check_fit_night_cooling_and_bounds() -> None:
+    from datetime import timezone
+    from custom_components.smart_heat.heatmodel.checks import check_fit
+    utc = timezone.utc
+    zd, par, p = _week(0.2)                                     # model cools fast, the room did not
+    chk = check_fit(zd, par, p, T0 + 7 * DAY, utc)
+    assert chk["night"]["nights"] >= 5 and chk["night"]["median_k"] < -0.5
+    assert chk["status"] == "unreliable" and chk["reasons"][0].startswith("night cooling off")
+    zd, par, p = _week(0.002)                                   # plausible: almost no loss, as measured
+    chk = check_fit(zd, par, p, T0 + 7 * DAY, utc)
+    assert chk["status"] == "ok" and abs(chk["night"]["median_k"]) < 0.5
+    chk = check_fit(zd, par, p, T0 + 2 * DAY, utc)              # too few nights: not judged
+    assert chk["status"] == "ok" and chk["night"]["nights"] < 5
+    p[par.I["k"]] = 0.0; p[par.I["h"]] = 0.0
+    chk = check_fit(zd, par, p, T0 + 2 * DAY, utc)
+    assert chk["status"] == "unreliable" and "k=0 (no loss to outside)" in chk["reasons"]
+    assert chk["warnings"] == ["h=0 (no wall node, cr unidentified)"]
+
+
+async def test_outside_experience() -> None:
+    from custom_components.smart_heat.heatmodel.checks import outside
+    exp = {"warm_ups": 12, "outdoor_min": 6.5, "gap_max": 3.2}
+    assert outside(exp, 8.0, 2.0) == ""
+    assert outside(exp, 2.0, 2.0) == "colder"
+    assert outside(exp, 2.0, 4.0) == "colder larger gap"
+    assert outside({"warm_ups": 0}, 8.0, 1.0) == "no warm-ups"
+
+
+async def test_log_gets_new_column_without_losing_rows(tmp_path) -> None:
+    from custom_components.smart_heat.heatmodel.learn import _append, _read
+    f = str(tmp_path / "params.csv")
+    _append(f, ["zone", "rmse"], [{"zone": "a", "rmse": "0.3"}])
+    _append(f, ["zone", "rmse", "checks"], [{"zone": "b", "rmse": "0.4", "checks": "{}"}])
+    rows = _read(f)
+    assert [r["zone"] for r in rows] == ["a", "b"] and rows[0]["checks"] == "" and rows[1]["checks"] == "{}"
+    assert open(f).readline().strip() == "zone,rmse,checks"

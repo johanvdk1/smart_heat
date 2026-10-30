@@ -87,8 +87,9 @@ class ZoneLearningSensor(_Base):
         z = self.rt.zone_state.get(self.zone)
         if not z:
             return {}
-        warm = [{k: e.get(k) for k in ("event", "setpoint", "pred_min", "meas_min", "err_min", "late", "interrupted")}
+        warm = [{k: e.get(k) for k in ("event", "setpoint", "pred_min", "meas_min", "err_min", "late", "interrupted", "outside")}
                 for e in z["events"] if e.get("kind") == "warm"]
         cool = [{k: e.get(k) for k in ("event", "coast_min", "err_5h", "pred_end", "meas_end")}
                 for e in z["events"] if e.get("kind") == "cool"]
-        return {"rmse": z["rmse"], "jumps": z["jumps"], "params": z["params"], "warm_ups": warm, "cool_downs": cool}
+        return {"rmse": z["rmse"], "jumps": z["jumps"], "checks": z.get("checks"), "params": z["params"],
+                "warm_ups": warm, "cool_downs": cool}

@@ -78,7 +78,8 @@ class SmartHeat:
                 for r in csv.DictReader(fh):
                     out[r["zone"]] = {"date": r["fit_until"], "rmse": float(r["rmse"]),
                                       "params": json.loads(r["params"]),
-                                      "jumps": r["jumps"].split() if r["jumps"] else [], "events": []}
+                                      "jumps": r["jumps"].split() if r["jumps"] else [],
+                                      "checks": json.loads(r["checks"]) if r.get("checks") else None, "events": []}
         if os.path.exists(ef):
             with open(ef, newline="", encoding="utf-8") as fh:
                 for r in csv.DictReader(fh):
@@ -131,6 +132,6 @@ class SmartHeat:
             if res:
                 last = res[-1]
                 self.zone_state[zone] = {"date": last["date"], "rmse": last["rmse"], "params": last["params"],
-                                         "jumps": last["jumps"], "events": last["events"]}
+                                         "jumps": last["jumps"], "checks": last["checks"], "events": last["events"]}
                 async_dispatcher_send(hass, SIGNAL_UPDATED)
         return days

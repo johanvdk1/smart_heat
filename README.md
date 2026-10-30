@@ -6,20 +6,25 @@ Private, for one house.
 
 ## Status
 
-Version 0.2.0 — **read-only**: the nightly learning routine of the learning
+Version 0.4.0 — **read-only**: the nightly learning routine of the learning
 phase runs in HA. Nothing is switched.
 
 - Nightly at 06:30, and on the action `smart_heat.learn_now`: per zone, every finished day not yet in
   the log is fitted on the earlier days and predicted, predicted against actual is logged.
 - `sensor.smart_heat_learning_run`: never / running / ok / error.
-- `sensor.smart_heat_<zone>_learning`: the last learned day, with rmse, parameters, jumps and that
+- `sensor.smart_heat_<zone>_learning`: the last learned day, with rmse, parameters, jumps, checks and that
   day's warm-ups and cool-downs.
+- Checks (0.4.0): every fit is checked for plausibility (`heatmodel/checks.py`): `unreliable` on a loss or
+  heating rate fitted to 0, or night cooling more than 0.5 K off (median of at least 5 closed-valve
+  nights); warnings for a model simpler than designed (no wall node, no radiator lag); the experience
+  (coldest outdoor, largest gap of the warm-ups trained on). Each warm-up is marked `outside` when it
+  lies beyond that experience. Nothing acts on it yet.
 - Learning log: `/config/smart_heat/predictions.csv` and `params.csv` (outside git).
 
 ## What lives where
 
 Everything the integration needs is in this repo, the model package included
-(`custom_components/smart_heat/heatmodel/`: data, model, controller, events, fit, learning;
+(`custom_components/smart_heat/heatmodel/`: data, model, controller, events, fit, checks, learning;
 numpy only, which ships with HA). The house is described in `zones.yaml`, which is not part of
 this repo: it is specific to the house, written and changed by hand, and kept in the HA config
 (default `/config/heating/zones.yaml`, asked in the config flow). It is validated on load, with a
