@@ -18,18 +18,47 @@
   },
   "entity": {
     "sensor": {
-      "learning_run": {
-        "name": "Learning run"
+      "next_start": {
+        "name": "Next start"
       },
-      "learning": {
-        "name": "Learning"
+      "equation": {
+        "name": "Equation"
+      }
+    },
+    "switch": {
+      "control": {
+        "name": "Control"
       }
     }
   },
   "services": {
-    "learn_now": {
-      "name": "Learn now",
-      "description": "Run the learning routine now instead of waiting for 06:30: every finished day not yet in the learning log is processed."
+    "request": {
+      "name": "Request",
+      "description": "Have a zone at a temperature by a time: Smart Heat starts the heating early enough.",
+      "fields": {
+        "zone": {
+          "name": "Zone",
+          "description": "Zone name from zones.yaml."
+        },
+        "temperature": {
+          "name": "Temperature",
+          "description": "Target temperature (5–23 °C)."
+        },
+        "ready_at": {
+          "name": "Ready at",
+          "description": "HH:MM (the next time it comes) or a date and time."
+        }
+      }
+    },
+    "cancel_request": {
+      "name": "Cancel request",
+      "description": "Drop the zone's one-off request; the schedule applies again.",
+      "fields": {
+        "zone": {
+          "name": "Zone",
+          "description": "Zone name from zones.yaml."
+        }
+      }
     }
   }
 }

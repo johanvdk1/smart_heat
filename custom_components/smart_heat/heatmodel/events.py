@@ -12,7 +12,7 @@ def find_events(zd, a, b):
         if np.isnan(A_m[i - BURN]): continue
         if SP_REF[i] - SP_REF[i - 1] >= EV['warm_step'] and SP_REF[i] - T_REF[i] >= EV['warm_gap']:
             if not warm or i - warm[-1] > EV['min_spacing_min']: warm.append(i)
-        if SP_REF[i - 1] - SP_REF[i] >= EV['cool_step'] and T_REF[i] - SP_REF[i] >= EV['cool_gap']:
+        if 'cool_step' in EV and SP_REF[i - 1] - SP_REF[i] >= EV['cool_step'] and T_REF[i] - SP_REF[i] >= EV['cool_gap']:
             if not cool or i - cool[-1] > EV['min_spacing_min']: cool.append(i)
     return warm, cool
 

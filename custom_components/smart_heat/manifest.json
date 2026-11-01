@@ -1,6 +1,10 @@
 {
   "domain": "smart_heat",
   "name": "Smart Heat",
+  "after_dependencies": [
+    "frontend",
+    "http"
+  ],
   "categories": [
     "climate.thermostats_heating"
   ],
@@ -9,7 +13,8 @@
   ],
   "config_flow": true,
   "dependencies": [
-    "recorder"
+    "recorder",
+    "websocket_api"
   ],
   "documentation": "https://github.com/johanvdk1/smart_heat",
   "integration_type": "service",
@@ -17,5 +22,5 @@
   "issue_tracker": "https://github.com/johanvdk1/smart_heat/issues",
   "requirements": [],
   "single_config_entry": true,
-  "version": "0.4.0"
+  "version": "0.5.0"
 }

@@ -61,7 +61,7 @@ def learn_zone(conf, zone, history, out_dir, tz, now, start_day=None, log=print)
     HALF = float(D.get('half_life_days', 21)); CM = float(D.get('coast_margin', 0.5))
     LEAD = Z.get('lead_time_min')                  # zone with a fixed lead time: warm-ups are scored on it, not on the model
     # start margin: the zone's worst late start minus the lateness that is accepted (a little late beats a lot early)
-    MARGIN = 0.0 if LEAD else max(0.0, float(Z['worst_late_min']) - float(D.get('allowed_late_min', 0)))
+    MARGIN = 0.0 if LEAD else max(0.0, float(Z.get('worst_late_min', 0)) - float(D.get('allowed_late_min', 0)))
     FREE_S = par.FREE + ['gam'] + (['kn'] if zd.NBS else [])
     TN_MODE = 'held'
     run_at = now.strftime('%Y-%m-%d %H:%M')

@@ -1,7 +1,8 @@
 """zones.yaml: validation and the entities a zone needs."""
 
-EVENT_KEYS = ('warm_step', 'warm_gap', 'target_window_min', 'reached_tol', 'warm_window_min', 'cool_step',
-              'cool_gap', 'coast_end_rise', 'coast_window_min', 'min_spacing_min')
+EVENT_KEYS = ('warm_step', 'warm_gap', 'target_window_min', 'reached_tol', 'warm_window_min', 'min_spacing_min')
+# v4 B's cool-down keys (cool_step, cool_gap, coast_end_rise, coast_window_min) and per zone comfort_floor are no
+# longer required (decision 28: v4 B is not run)
 
 
 def validate(conf):
@@ -23,16 +24,13 @@ def validate(conf):
                 if not (rc or {}).get(k): err.append(f'zone {zn}, room {rn}: {k} missing')
         if len(rooms) > 1 and zc.get('reference_room') not in rooms:
             err.append(f'zone {zn}: several rooms, reference_room missing or not one of them')
-        if 'worst_late_min' not in zc and 'lead_time_min' not in zc:
-            err.append(f'zone {zn}: worst_late_min or lead_time_min missing')
-        if 'comfort_floor' not in zc: err.append(f'zone {zn}: comfort_floor missing')
     return err
 
 
 def entities(conf, zone):
     """Every entity whose history ZoneData reads for this zone."""
     H, Z = conf['house'], conf['zones'][zone]
-    out = [H['heating_pump'], H['outdoor']] + ([H['outdoor_internet']] if H.get('outdoor_internet') else [])
+    out = [H['heating_pump'], H['outdoor']] + [H[k] for k in ('outdoor_internet', 'heating_pump_spread') if H.get(k)]
     for rc in Z['rooms'].values():
         out += [rc['temperature'], rc['valve'], rc['climate']] + ([rc['door']] if rc.get('door') else [])
     out += list(Z.get('in_use') or [])
