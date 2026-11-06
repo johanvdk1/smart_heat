@@ -31,7 +31,7 @@ STORE_VERSION, STORE_KEY = 1, "smart_heat.state"
 WINDOW_H = 8          # history read for recording: warm window (5 h) + 30 min + burn-in, with room to spare
 BURN_MIN = 60         # minutes before a warm-up start that must be measured (instead of the model's 36 h)
 MATCH_MIN = 10        # a recorded warm-up belongs to a pre-heat decision started within this many minutes
-QCOLS = ['at', 'zone', 'warmup', 'n', 'dead_time', 'per_k', 'per_k_out']   # params.csv: every fitted set
+QCOLS = ['at', 'zone', 'warmup', 'n', 'dead_time', 'per_k', 'per_k_out', 'valve_saving']   # params.csv: every learned set
 PCOLS = ['zone', 'ready_at', 'target', 'source', 'control', 'decided_at', 'start_temp', 'outdoor', 'valve_open',
          'pred_min', 'capped', 'warmup_start', 'minutes', 'reached_at', 'late_min', 'result']
 
@@ -77,6 +77,21 @@ def _append(path: str, cols: list[str], rows: list[dict]) -> None:
         w.writerows(rows)
 
 
+def _ensure_cols(path: str, cols: list[str]) -> None:
+    """Rewrite a CSV log once when its header lacks columns added since (old rows kept, new fields empty)."""
+    if not os.path.exists(path):
+        return
+    with open(path, newline="", encoding="utf-8") as fh:
+        r = csv.DictReader(fh)
+        if r.fieldnames == cols:
+            return
+        rows = list(r)
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, cols, extrasaction="ignore")
+        w.writeheader()
+        w.writerows(rows)
+
+
 def _num(v: Any) -> float | None:
     try:
         return float(v)
@@ -105,7 +120,7 @@ class SmartHeat:
         self.errors: dict[str, list[float]] = {}   # per zone the errors of the learned warm-ups, oldest first
         self.last_warmup: dict[str, dict] = {}
         self.plans: dict[str, dict] = {}
-        self.applied: dict[str, float | None] = {}
+        self.applied: dict[str, tuple[str, float]] = {}   # per zone the pre-heat last sent: (ready_at, target)
         self.recorded: set[tuple[str, str]] = set()
         self.recorded_ts: list[tuple[str, float]] = []
         self.seeding = False
@@ -129,26 +144,29 @@ class SmartHeat:
         return not os.path.exists(self.warm_file)
 
     def _load_warmups(self) -> None:
-        """Archive the v4 B log once (decision 28); read warmups.csv; each zone's learned state from the store
-        (played through warmups.csv once if the store has none but the file exists)."""
+        """Archive the v4 B log once; read warmups.csv; each zone's learned state from the store (played through
+        warmups.csv once if the store has none, or one of another version of the equation, but the file exists)."""
         os.makedirs(self.out_dir, exist_ok=True)
         if not os.path.exists(self.warm_file):    # before the first 0.5.0 run: the files are v4 B's log
             for name in ("predictions.csv", "params.csv"):
                 f = os.path.join(self.out_dir, name)
                 if os.path.exists(f):
                     shutil.move(f, os.path.join(self.out_dir, f"v4b_{name}"))
+        _ensure_cols(self.param_file, QCOLS)
         rows = _read(self.warm_file)
         self.recorded = {(r["zone"], r["start"]) for r in rows}
         self.recorded_ts = [(r["zone"], float(r["ts"])) for r in rows]
         for z in self.zones:
             zr = [r for r in rows if r["zone"] == z]
-            if z not in self.data["learned"]:
+            if not hm_eq.current(self.data["learned"].get(z)):
+                again = z in self.data["learned"]
                 st = hm_eq.new_state()
                 for r in hm_warm.learn_rows(zr):
                     st, _ = hm_eq.learn(st, r)
                 self.data["learned"][z] = st
                 if st["n"]:
-                    self._set_params(z, hm_eq.params(st), "replayed from warmups.csv")
+                    self._set_params(z, hm_eq.params(st), "re-learned from warmups.csv (new equation)" if again
+                                     else "replayed from warmups.csv")
             self.params[z] = hm_eq.params(self.data["learned"][z])
             self.errors[z] = [float(r["err_min"]) for r in zr if r["learn"] in ("True", True) and r.get("err_min") not in (None, "")]
             if zr:
@@ -317,19 +335,15 @@ class SmartHeat:
         now = dt_util.now()
         changed = False
         if self.pump_fault():
-            # no warm-up anywhere; zones under control held at their base so the valves close (owner, 2026-11-01)
+            # no pre-heat starts anywhere and nothing is sent: Smart Heat only ever raises a setpoint
             for z in self.zones:
                 control = bool(self.data["control"].get(z))
                 d = self.data["pending"].pop(z, None)
                 if d:
                     await self.hass.async_add_executor_job(_append, self.pred_file, PCOLS, [dict(d, result="pump fault")])
                     changed = True
-                sched = self.data["schedules"].get(z)
-                base = float(sched["base"]) if sched else None
-                self.plans[z] = {"preheat": False, "ready_at": None, "setpoint": base, "control": control,
-                                 "reason": "heating pump fault: no warm-up" + ("" if base is not None else "; no schedule, nothing set")}
-                if control:
-                    await self._apply(z, base)
+                self.plans[z] = {"preheat": False, "ready_at": None, "setpoint": None, "control": control,
+                                 "reason": "heating pump fault: no pre-heat"}
             if changed:
                 self.store.async_delay_save(self._store_data, 1)
             async_dispatcher_send(self.hass, SIGNAL_UPDATED)
@@ -371,31 +385,32 @@ class SmartHeat:
                 await self.hass.async_add_executor_job(
                     _append, self.pred_file, PCOLS, [dict(d, result="no warm-up recorded")])
                 self.data["pending"].pop(z); changed = True
-            if sched is None and not (p["preheat"] or datetime.fromisoformat(req["ready_at"]) <= now):
-                p["setpoint"] = None              # a request without a schedule: nothing to set before it
             p["control"] = control
             self.plans[z] = p
             if control:
-                await self._apply(z, p["setpoint"])
+                await self._apply(z, p)
         if changed:
             self.store.async_delay_save(self._store_data, 1)
         async_dispatcher_send(self.hass, SIGNAL_UPDATED)
 
-    async def _apply(self, zone: str, setpoint: float | None) -> None:
-        """Send the setpoint to the zone's thermostats when it changes (a manual change in between stands
-        until the next change of the plan)."""
-        if setpoint is None or self.applied.get(zone) == setpoint:
+    async def _apply(self, zone: str, p: dict) -> None:
+        """Send a due pre-heat's target to the zone's thermostats, once per pre-heat (a manual change after it
+        stands). Nothing else is ever sent: Smart Heat only raises a setpoint, at a pre-heat start."""
+        if not p.get("preheat") or p.get("setpoint") is None or not p.get("ready_at"):
+            return
+        key = (p["ready_at"].isoformat(), float(p["setpoint"]))
+        if self.applied.get(zone) == key:
             return
         ids = [rc["climate"] for rc in self.conf["zones"][zone]["rooms"].values()]
-        _LOGGER.info("%s: setpoint %.1f on %s", zone, setpoint, ", ".join(ids))
+        _LOGGER.info("%s: pre-heat, setpoint %.1f on %s", zone, p["setpoint"], ", ".join(ids))
         await self.hass.services.async_call("climate", "set_temperature",
-                                            {"entity_id": ids, "temperature": setpoint}, blocking=True)
-        self.applied[zone] = setpoint
+                                            {"entity_id": ids, "temperature": p["setpoint"]}, blocking=True)
+        self.applied[zone] = key
 
     # ---- changes from the cards, services and switches ----------------------------------------------
     async def async_set_control(self, zone: str, on: bool) -> None:
         self.data["control"][zone] = on
-        self.applied.pop(zone, None)              # on: the plan's setpoint is sent at once
+        self.applied.pop(zone, None)              # on: a pre-heat already due is sent at once
         if zone in self.data["pending"]:
             self.data["pending"][zone]["control"] = on
         self.store.async_delay_save(self._store_data, 1)

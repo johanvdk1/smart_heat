@@ -88,10 +88,10 @@ def next_rise(s, req, now):
 
 
 def plan(s, req, now, room, outdoor, valve_open, params, tol):
-    """What the zone's setpoint should be now, and the coming pre-heat start: of all rises within HORIZON_H
-    the one that needs the earliest start decides (a later, higher target may have to start first); of those
-    already due, the highest target."""
-    sp = setpoint_at(s, req, now)
+    """The coming pre-heat start, and the setpoint to send now: the target while its pre-heat is due, else None
+    (Smart Heat only raises a setpoint, at a pre-heat start; the schedule's ends and base only tell where the
+    next rise is). Of all rises within HORIZON_H the one that needs the earliest start decides (a later, higher
+    target may have to start first); of those already due, the highest target."""
     best = None
     for ready, target, src in rises(s, req, now):
         rng = out_of_range(room, target, outdoor)
@@ -106,7 +106,7 @@ def plan(s, req, now, room, outdoor, valve_open, params, tol):
         if best is None or key < best['key']:
             best = dict(c, key=key)
     if best is None:
-        return {'setpoint': sp, 'preheat': False, 'ready_at': None}
+        return {'setpoint': None, 'preheat': False, 'ready_at': None}
     best.pop('key')
     pre = best.pop('need') > 0 and best['start_at'] <= now < best['ready_at']
-    return dict(best, setpoint=best['target'] if pre else sp, preheat=pre)
+    return dict(best, setpoint=best['target'] if pre else None, preheat=pre)

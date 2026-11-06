@@ -84,26 +84,33 @@ async def test_setup_entities_shadow_and_control(hass: HomeAssistant, hass_ws_cl
     assert not r["success"] and r["error"]["code"] == "invalid_schedule"
     sched = {"base": 16, "days": {d: [{"start": "00:00", "end": "23:59", "temperature": 19.5}]
                                   for d in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")}}
+    hass.states.async_set(rc["temperature"], "19.5")                     # at the schedule's target: no pre-heat due
     await ws.send_json({"id": 3, "type": "smart_heat/schedule/set", "zone": "woonkamer", "schedule": sched})
     r = await ws.receive_json()
     assert r["success"] and r["result"]["schedule"]["base"] == 16.0
-    assert calls[-1].data["temperature"] == 19.5                        # control on: the schedule's setpoint now
-    # heating pump fault (power under 2 W for 10 min): no warm-up, a zone under control held at its base
+    assert len(calls) == 1                         # no pre-heat due: nothing sent (Smart Heat only raises, at a pre-heat)
+    await hass.services.async_call("switch", "turn_off", {"entity_id": "switch.smart_heat_woonkamer_control"}, blocking=True)
+    await hass.services.async_call("switch", "turn_on", {"entity_id": "switch.smart_heat_woonkamer_control"}, blocking=True)
+    assert len(calls) == 1                         # switching control on sends nothing either
+    # heating pump fault (power under 2 W for 10 min): no pre-heat, and nothing is sent
     rt = entry.runtime_data
+    hass.states.async_set(rc["temperature"], "16.0")
     await ws.send_json({"id": 5, "type": "smart_heat/request/set", "zone": "woonkamer", "temperature": 22, "ready_at": ready})
     assert (await ws.receive_json())["success"]
-    assert calls[-1].data["temperature"] == 22                           # pre-heat for the request
+    assert len(calls) == 2 and calls[-1].data["temperature"] == 22      # pre-heat for the request
+    await rt.async_plan()
+    assert len(calls) == 2                                               # sent once per pre-heat
     hass.states.async_set(H["heating_pump"], "0.0")
     await hass.async_block_till_done()
     rt.bad_since["power"] = dt_util.now() - timedelta(minutes=11)        # as if 11 min ago
     await rt.async_plan()
-    assert calls[-1].data["temperature"] == 16.0
+    assert len(calls) == 2                                               # nothing lowered
     st = hass.states.get("sensor.smart_heat_woonkamer_next_start")
     assert not st.attributes["preheat"] and st.attributes["reason"].startswith("heating pump fault")
     assert "woonkamer" not in rt.data["pending"]
     hass.states.async_set(H["heating_pump"], "6.0")                       # pump back: the plan applies again
     await hass.async_block_till_done(wait_background_tasks=True)
-    assert calls[-1].data["temperature"] == 22
+    assert len(calls) == 2 and rt.plans["woonkamer"]["preheat"]          # the same pre-heat: not sent again
     await hass.services.async_call(DOMAIN, "cancel_request", {"zone": "woonkamer"}, blocking=True)
     await ws.send_json({"id": 6, "type": "smart_heat/zones"})
     r = await ws.receive_json()
@@ -125,12 +132,48 @@ async def test_setup_entities_shadow_and_control(hass: HomeAssistant, hass_ws_cl
     hist = rt.data["params"]["woonkamer"]
     assert len(hist) == 1 and hist[0]["n"] == 1 and hist[0]["warmup"] == "2026-11-02 06:00"
     rows = open(hass.config.path("smart_heat", "params.csv")).read().splitlines()
-    assert rows[0] == "at,zone,warmup,n,dead_time,per_k,per_k_out" and rows[-1].split(",")[1:4] == ["woonkamer", "2026-11-02 06:00", "1"]
+    assert rows[0] == "at,zone,warmup,n,dead_time,per_k,per_k_out,valve_saving" and rows[-1].split(",")[1:4] == ["woonkamer", "2026-11-02 06:00", "1"]
     per_k = rt.params["woonkamer"]["per_k"]
     assert await hass.config_entries.async_unload(entry.entry_id)
     assert await hass.config_entries.async_setup(entry.entry_id)              # restart: carried on from the store
     await hass.async_block_till_done(wait_background_tasks=True)
     assert entry.runtime_data.params["woonkamer"]["per_k"] == per_k and entry.runtime_data.data["learned"]["woonkamer"]["n"] == 1
+
+
+async def test_a_0_5_0_state_is_re_learned_with_the_new_equation(hass: HomeAssistant, hass_storage) -> None:
+    from custom_components.smart_heat.heatmodel import equation as hm_eq, warmups as hm_warm
+    import shutil
+    out = hass.config.path("smart_heat")                               # shared by the tests: removed again below
+    shutil.rmtree(out, ignore_errors=True)
+    os.makedirs(out)
+    rows = [dict(zone="woonkamer", start=f"2026-11-0{d} 18:01", ts=1793600000.0 + d * 86400, reference_room="woonkamer",
+                 target=20.5, start_temp=16.4, outdoor=7.0, valve_open=(d % 2 == 0), minutes=110 + d, reached_at="",
+                 interrupted=False, door_open=False, learn=True, reason="", pred_min=100.0, err_min=-10.0) for d in range(1, 6)]
+    with open(os.path.join(out, "warmups.csv"), "w") as fh:
+        fh.write(",".join(hm_warm.COLS) + "\n" + "".join(",".join(str(r[c]) for c in hm_warm.COLS) + "\n" for r in rows))
+    with open(os.path.join(out, "params.csv"), "w") as fh:            # the 0.5.0 header, one old row
+        fh.write("at,zone,warmup,n,dead_time,per_k,per_k_out\n2026-11-05T19:41:55,woonkamer,2026-11-05 18:01,25,2.737,25.719,0.428\n")
+    hass_storage["smart_heat.state"] = {"version": 1, "key": "smart_heat.state", "data": {
+        "learned": {"woonkamer": {"x": [2.737, 25.719, 0.428], "P": [[1, 0, 0], [0, 1, 0], [0, 0, 1]], "n": 25, "ts": 1.0}},
+        "params": {"woonkamer": [{"at": "2026-11-05T19:41:55", "warmup": "2026-11-05 18:01", "n": 25,
+                                  "dead_time": 2.737, "per_k": 25.719, "per_k_out": 0.428}]}}}
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_ZONES_FILE: ZONES_FILE})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    rt = entry.runtime_data
+    st = rt.data["learned"]["woonkamer"]
+    assert hm_eq.current(st) and st["n"] == 5                          # re-learned from the 5 warm-ups, from the start
+    assert rt.params["woonkamer"]["valve_saving"] is not None
+    hist = rt.data["params"]["woonkamer"]
+    assert len(hist) == 2 and hist[-1]["warmup"].startswith("re-learned")   # the old set is kept in the history
+    lines = open(os.path.join(out, "params.csv")).read().splitlines()
+    assert lines[0] == "at,zone,warmup,n,dead_time,per_k,per_k_out,valve_saving"
+    assert lines[1] == "2026-11-05T19:41:55,woonkamer,2026-11-05 18:01,25,2.737,25.719,0.428,"   # old row kept, new field empty
+    assert "re-learned" in lines[-1]
+    assert hass.states.get("sensor.smart_heat_woonkamer_equation").attributes["valve_open_saving_min"] is not None
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    shutil.rmtree(out, ignore_errors=True)
 
 
 async def test_setup_bad_dir(hass: HomeAssistant, tmp_path) -> None:

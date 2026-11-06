@@ -10,12 +10,14 @@ from custom_components.smart_heat.heatmodel.config import EVENT_KEYS
 from custom_components.smart_heat.heatmodel.data import ZoneData
 
 TZ = ZoneInfo("Europe/Brussels")
-P = {"dead_time": 30.0, "per_k": 20.0, "per_k_out": 0.5}
+P = {"dead_time": 30.0, "per_k": 20.0, "per_k_out": 0.5, "valve_saving": 12.0}
 
 
-def test_minutes_halves_dead_time_on_a_warm_radiator_and_stops_at_the_tolerance() -> None:
+def test_minutes_subtracts_the_valve_open_saving_and_stops_at_the_tolerance() -> None:
     assert E.minutes(P, 16.0, 21.0, 8.0, False) == 30 + 100 + 6.5
-    assert E.minutes(P, 16.0, 21.0, 8.0, True) == 15 + 100 + 6.5
+    assert E.minutes(P, 16.0, 21.0, 8.0, True) == 18 + 100 + 6.5
+    assert E.minutes(dict(P, valve_saving=50.0), 16.0, 21.0, 8.0, True) == 0 + 100 + 6.5   # at most the dead time
+    assert E.minutes({k: v for k, v in P.items() if k != "valve_saving"}, 16.0, 21.0, 8.0, True) == 30 + 100 + 6.5
     assert E.minutes(P, 20.8, 21.0, 8.0, False, tol=0.3) == 0.0       # already within 0.3 K
     assert E.minutes(P, 26.0, 21.0, 8.0, False) == 0.0                # warmer than the target
 
@@ -46,12 +48,12 @@ def _learn(st, rows):
 
 def test_each_warm_up_corrects_the_numbers_and_they_carry_over() -> None:
     rng = np.random.default_rng(1)
-    true = {"dead_time": 10.0, "per_k": 32.0, "per_k_out": 2.0}                 # far from the starting numbers
+    true = {"dead_time": 20.0, "per_k": 32.0, "per_k_out": 2.0, "valve_saving": 8.0}   # far from the starting numbers
     st, errs = _learn(E.new_state(), _rows(true, 40, 1e9, rng, noise=3.0))
     assert st["n"] == 40
     assert np.mean(np.abs(errs[-10:])) < np.mean(np.abs(errs[:10])) / 2       # the mistakes get smaller
     p = E.params(st)
-    for k, tol in (("dead_time", 8.0), ("per_k", 3.0), ("per_k_out", 0.6)):
+    for k, tol in (("dead_time", 8.0), ("per_k", 3.0), ("per_k_out", 0.6), ("valve_saving", 6.0)):
         assert abs(p[k] - true[k]) < tol, (k, p)
     r = _rows(true, 1, 2e9, rng)[0]                                            # the next warm-up starts from these
     st2, e = E.learn(st, r)
@@ -72,13 +74,30 @@ def test_a_warm_up_moves_the_numbers_towards_its_own_result_within_the_limits() 
 
 def test_every_warm_up_counts_equally_however_old() -> None:
     rng = np.random.default_rng(2)
-    true = {"dead_time": 20.0, "per_k": 25.0, "per_k_out": 1.0}
+    true = {"dead_time": 20.0, "per_k": 25.0, "per_k_out": 1.0, "valve_saving": 6.0}   # off the bounds: no clipping
     rows = _rows(true, 30, 1e9, rng, noise=4.0)
     a, _ = _learn(E.new_state(), rows)
     b, _ = _learn(E.new_state(), [dict(r, ts=r["ts"] + k * 86400 * 30) for k, r in enumerate(rows[::-1])])  # other order, months apart
     for x, y in zip(a["x"], b["x"]):
         assert abs(x - y) < 1e-6
     assert np.all(np.diag(np.array(a["P"])) < np.diag(E.P0))                  # more certain with experience
+
+
+def test_valve_open_saving_starts_at_0_and_is_learned_only_where_it_exists() -> None:
+    rng = np.random.default_rng(2)
+    none = {"dead_time": 25.0, "per_k": 15.0, "per_k_out": 0.5, "valve_saving": 0.0}   # an open valve saves nothing
+    st, _ = _learn(E.new_state(), _rows(none, 40, 1e9, rng, noise=3.0))
+    assert E.new_state()["x"][3] == 0.0 and E.params(st)["valve_saving"] < 4.0
+    some = dict(none, valve_saving=15.0)                                         # a warm radiator saves 15 min
+    st, _ = _learn(E.new_state(), _rows(some, 40, 1e9, rng, noise=3.0))
+    assert abs(E.params(st)["valve_saving"] - 15.0) < 6.0
+    assert all(x[3] <= x[0] for x in [E.learn(st, r)[0]["x"] for r in _rows(some, 5, 2e9, rng, noise=30.0)])
+
+
+def test_a_learned_state_of_the_previous_equation_is_not_current() -> None:
+    assert E.current(E.new_state())
+    old = {"x": [12.6, 11.3, 1.06], "P": np.eye(3).tolist(), "n": 38, "ts": 1.0}   # 0.5.0: three numbers, no version
+    assert not E.current(old) and not E.current(None) and not E.current({})
 
 
 def test_final_warmups_waits_30_min_after_reaching_and_marks_what_cannot_be_learned() -> None:
@@ -128,12 +147,12 @@ def test_schedule_setpoint_and_next_rise() -> None:
 def test_plan_starts_when_now_plus_minutes_reaches_the_desired_time() -> None:
     need = E.minutes(P, 16.0, 20.0, 8.0, False, 0.3)                      # 30 + 80 + 6 = 116 min: start 05:04
     early = S.plan(SCHED, None, _t(4, 55), 16.0, 8.0, False, P, 0.3)
-    assert not early["preheat"] and early["setpoint"] == 16.0 and early["minutes"] == need
+    assert not early["preheat"] and early["setpoint"] is None and early["minutes"] == need   # nothing to send
     assert early["start_at"] == _t(7) - dt.timedelta(minutes=need)
     on = S.plan(SCHED, None, _t(5, 5), 16.0, 8.0, False, P, 0.3)
     assert on["preheat"] and on["setpoint"] == 20.0
     warm = S.plan(SCHED, None, _t(6, 50), 19.8, 8.0, False, P, 0.3)       # already within 0.3 K: nothing to do
-    assert not warm["preheat"] and warm["setpoint"] == 16.0
+    assert not warm["preheat"] and warm["setpoint"] is None
     cold_out = S.plan(SCHED, None, _t(5, 5), 16.0, -20.0, False, P, 0.3)  # outside the working range
     assert not cold_out["preheat"] and cold_out["start_at"] == _t(7) and "working range" in cold_out["reason"]
     far = S.plan(SCHED, None, _t(3, 0), 8.0, 0.0, False, P, 0.3)          # 30 + 240 + 10 min: at most 4 h

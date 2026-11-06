@@ -125,7 +125,7 @@ class SmartHeatThermostatCard extends SmartHeatBase {
           <span>by</span><input type="time" id="time" value="${esc(this._time)}">
           <button class="primary" id="set">Set</button></div>
         ${req ? `<div class="row muted">Request: ${fmt(req.temperature)} °C ${dayOf(req.ready_at)} at ${hm(req.ready_at)} <button id="cancel">Cancel</button></div>` : ""}
-        <div class="muted">Learned from ${q.n ?? 0} warm-ups: dead time ${fmt(q.dead_time, 0)} min · ${fmt(q.per_k)} min per K · ${fmt(q.per_k_out, 2)} min per K outside</div>
+        <div class="muted">Learned from ${q.n ?? 0} warm-ups: dead time ${fmt(q.dead_time, 0)} min · ${fmt(q.per_k)} min per K · ${fmt(q.per_k_out, 2)} min per K outside · ${fmt(q.valve_saving, 0)} min less with the valve open</div>
         ${this._error ? `<div class="err">${esc(this._error)}</div>` : ""}
       </ha-card>`;
     const $ = (id) => root.getElementById(id);

@@ -94,6 +94,7 @@ class EquationSensor(ZoneEntity, SensorEntity):
         e = [abs(v) for v in self.rt.errors.get(self.zone, [])]
         mean = lambda x: round(sum(x) / len(x), 1) if x else None
         return {"dead_time_min": p.get("dead_time"), "min_per_k": p.get("per_k"), "min_per_k_outside": p.get("per_k_out"),
+                "valve_open_saving_min": p.get("valve_saving"),
                 "error_last_10_min": mean(e[-10:]), "error_10_before_min": mean(e[-20:-10]),
                 "seeding": self.rt.seeding,
                 "last_warmup": {k: w.get(k) for k in ("start", "target", "start_temp", "outdoor", "minutes", "pred_min",
