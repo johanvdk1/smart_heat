@@ -198,3 +198,45 @@ async def test_history_rows_keeps_attribute_changes() -> None:
     assert [r[1] for r in rows] == ["heat", "heat"]
     assert [r[2]["temperature"] for r in rows] == [19.0, 21.0]
     assert rows[1][0] - rows[0][0] == 60.0
+
+
+async def test_pump_watch_replan_timer(hass: HomeAssistant, caplog, freezer) -> None:
+    """A pump that stays off replans after the hold, in the event loop; one that recovers first cancels the timer."""
+    import yaml
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+    from custom_components.smart_heat.heatmodel import pump as hm_pump
+    H = yaml.safe_load(open(ZONES_FILE))["house"]
+    hass.states.async_set(H["heating_pump"], "0.0")                       # bad at setup: the hold timer starts
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_ZONES_FILE: ZONES_FILE})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    rt = entry.runtime_data
+    calls = []
+    plan = rt.async_plan
+
+    async def counted(*a):                                                # the timer looks async_plan up when it fires
+        calls.append(dt_util.utcnow())
+        await plan(*a)
+    rt.async_plan = counted
+    hold = timedelta(minutes=hm_pump.POWER_FOR_MIN, seconds=10)
+    # stays off: the timer fires once, the fault is on, and nothing is logged
+    freezer.tick(hold)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert len(calls) == 1 and rt.pump_fault()
+    assert "thread other than the event loop" not in caplog.text and "Error doing job" not in caplog.text
+    # recovers: replans once (fault ended) and leaves no timer
+    hass.states.async_set(H["heating_pump"], "5.5")
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert len(calls) == 2 and not rt.pump_fault()
+    # off again, back within the hold (the 17:54 start of 2026-11-27): the timer is cancelled, no replan
+    hass.states.async_set(H["heating_pump"], "0.0")
+    await hass.async_block_till_done()
+    hass.states.async_set(H["heating_pump"], "5.5")
+    await hass.async_block_till_done()
+    freezer.tick(2 * hold)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert len(calls) == 2
+    assert await hass.config_entries.async_unload(entry.entry_id)

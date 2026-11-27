@@ -286,13 +286,20 @@ class SmartHeat:
         """Track how long the pump has been bad; replan when a fault starts or ends. Returns the unsubscriber."""
         H = self.conf["house"]
         ids = {"power": H["heating_pump"], "spread": H.get("heating_pump_spread")}
-        later: list = []
+        pending: dict[str, Any] = {}   # which -> cancel of its replan timer (at most one per signal)
 
         def bad(which: str, state: Any) -> bool:
             v = _num(state.state) if state is not None else None
             if which == "power":
                 return v is None or v < PUMP_MIN_W
             return v is not None and v > hm_pump.SPREAD_MAX_W
+
+        def schedule(which: str, hold: int) -> None:
+            # a coroutine function, so HA runs it in the event loop (a plain lambda runs in a worker thread)
+            async def fire(_now: datetime) -> None:
+                pending.pop(which, None)
+                await self.async_plan()
+            pending[which] = async_call_later(self.hass, hold * 60 + 5, fire)
 
         @callback
         def update(which: str, state: Any) -> None:
@@ -301,9 +308,11 @@ class SmartHeat:
                 if self.bad_since[which] is None:
                     self.bad_since[which] = dt_util.now()
                     hold = hm_pump.POWER_FOR_MIN if which == "power" else hm_pump.SPREAD_FOR_MIN
-                    later.append(async_call_later(self.hass, hold * 60 + 5, lambda _: self.hass.async_create_task(self.async_plan())))
+                    schedule(which, hold)
             else:
                 self.bad_since[which] = None
+                if (cancel := pending.pop(which, None)) is not None:
+                    cancel()   # recovered before the hold ran out: no fault, nothing to replan
                 if was and not self.pump_fault():
                     self.hass.async_create_task(self.async_plan())
 
@@ -321,8 +330,9 @@ class SmartHeat:
 
         def stop() -> None:
             unsub()
-            for u in later:
-                u()
+            for cancel in pending.values():
+                cancel()
+            pending.clear()
         return stop
 
     def pump_fault(self) -> bool:

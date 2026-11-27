@@ -6,7 +6,7 @@ Private, for one house.
 
 ## Status
 
-Version 0.5.1 — the start time comes from the owner's equation per zone (design decision 28):
+Version 0.5.2 — the start time comes from the owner's equation per zone (design decision 28):
 
     minutes = dead time − valve-open saving (only when the valve is already open)
               + minutes per K × (target − room) + minutes per K outside × (target − outdoor)
